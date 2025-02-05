@@ -1,9 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends
-from typing import List
+from typing import List, Optional
+from datetime import date, timedelta
 from .models import Contact
 from .schemas import ContactCreate, ContactRead
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import extract
 from .db import (
     get_db,
 )
@@ -75,3 +76,40 @@ def delete_contact(contact_id: int, db: Session = Depends(get_db)):
     db.delete(db_contact)
     db.commit()
     return {"message": "Contact deleted successfully"}
+
+
+# Search contacts by first name, last name, or email
+@router.get("/search", response_model=List[ContactRead])
+def search_contacts(
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    email: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(Contact)
+
+    if first_name:
+        query = query.filter(Contact.first_name.ilike(f"%{first_name}%"))
+    if last_name:
+        query = query.filter(Contact.last_name.ilike(f"%{last_name}%"))
+    if email:
+        query = query.filter(Contact.email.ilike(f"%{email}%"))
+
+    contacts = query.all()
+    return contacts
+
+
+# Get contacts with birthdays within the next 7 days
+@router.get("/birthdays", response_model=List[ContactRead])
+def get_upcoming_birthdays(db: Session = Depends(get_db)):
+    today = date.today()
+    upcoming_months = [(today + timedelta(days=i)).month for i in range(8)]
+    upcoming_days = [(today + timedelta(days=i)).day for i in range(8)]
+
+    contacts = (
+        db.query(Contact)
+        .filter((extract("month", Contact.birth_date).in_(upcoming_months)))
+        .filter(extract("day", Contact.birth_date).in_(upcoming_days))
+    ).all()
+
+    return contacts
