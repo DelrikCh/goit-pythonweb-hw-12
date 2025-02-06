@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from typing import List, Optional
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
+import jwt
 from .models import Contact, User
 from .schemas import ContactCreate, ContactRead, UserCreate
 from sqlalchemy.orm import Session
@@ -12,13 +14,49 @@ from .db import (
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 router = APIRouter()
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# TODO: Move the secret key to a more secure location
+SECRET_KEY = "ChuckNorris"
+ALGORITHM = "HS256"
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+
+# Dependency to verify JWT token
+def verify_token(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        user = db.query(User).filter(User.email == email).first()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return payload
+    except jwt.PyJWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 # Create a new contact
 @router.post(
     "/contacts/", response_model=ContactRead, status_code=status.HTTP_201_CREATED
 )
-def create_contact(contact: ContactCreate, db: Session = Depends(get_db)):
+def create_contact(
+    contact: ContactCreate,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(verify_token),
+):
     # If email exists or phone exists- raise an error
     existing_email = (
         db.query(Contact)
@@ -168,3 +206,36 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(new_user)
 
     return new_user
+
+
+# Login endpoint
+@router.post("/login")
+def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.email == form_data.username).first()
+
+    if not user or not pwd_context.verify(form_data.password, user.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+# Function to create a JWT token
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(hours=1)  # Default expiry time
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
