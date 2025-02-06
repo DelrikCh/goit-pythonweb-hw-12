@@ -11,9 +11,10 @@ class Contact(Base):
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
-    phone_number = Column(String, nullable=False)
+    phone_number = Column(String, unique=True, nullable=False)
     birth_date = Column(Date, nullable=False)
     additional_info = Column(String, nullable=True)  # Optional field
+
 
 class User(Base):
     __tablename__ = "users"
