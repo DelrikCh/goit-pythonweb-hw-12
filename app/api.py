@@ -1,8 +1,11 @@
+import jwt
+import os
+
 from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from typing import List, Optional
 from datetime import date, timedelta, datetime
-import jwt
+from dotenv import load_dotenv
 from .models import Contact, User
 from .schemas import ContactCreate, ContactRead, UserCreate
 from sqlalchemy.orm import Session
@@ -12,12 +15,13 @@ from .db import (
     get_db,
 )
 
+load_dotenv()
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 router = APIRouter()
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
-# TODO: Move the secret key to a more secure location
-SECRET_KEY = "ChuckNorris"
-ALGORITHM = "HS256"
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 
