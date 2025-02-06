@@ -1,14 +1,16 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List, Optional
 from datetime import date, timedelta
-from .models import Contact
-from .schemas import ContactCreate, ContactRead
+from .models import Contact, User
+from .schemas import ContactCreate, ContactRead, UserCreate
 from sqlalchemy.orm import Session
 from sqlalchemy import extract
+from passlib.context import CryptContext
 from .db import (
     get_db,
 )
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 router = APIRouter()
 
 
@@ -41,7 +43,9 @@ def get_contacts(db: Session = Depends(get_db)):
 def get_contact(contact_id: int, db: Session = Depends(get_db)):
     contact = db.query(Contact).filter(Contact.id == contact_id).first()
     if contact is None:
-        raise HTTPException(status_code=404, detail="Contact not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found"
+        )
     return contact
 
 
@@ -52,7 +56,9 @@ def update_contact(
 ):
     db_contact = db.query(Contact).filter(Contact.id == contact_id).first()
     if db_contact is None:
-        raise HTTPException(status_code=404, detail="Contact not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found"
+        )
 
     db_contact.first_name = contact.first_name
     db_contact.last_name = contact.last_name
@@ -71,7 +77,9 @@ def update_contact(
 def delete_contact(contact_id: int, db: Session = Depends(get_db)):
     db_contact = db.query(Contact).filter(Contact.id == contact_id).first()
     if db_contact is None:
-        raise HTTPException(status_code=404, detail="Contact not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found"
+        )
 
     db.delete(db_contact)
     db.commit()
@@ -113,3 +121,35 @@ def get_upcoming_birthdays(db: Session = Depends(get_db)):
     ).all()
 
     return contacts
+
+
+# Hash password function
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+# Registration endpoint
+@router.post("/registration", status_code=status.HTTP_201_CREATED)
+def register_user(user: UserCreate, db: Session = Depends(get_db)):
+    # Check if the user with the same email already exists
+    existing_user = db.query(User).filter(User.email == user.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User with this email already exists.",
+        )
+
+    # Hash the password
+    hashed_password = hash_password(user.password)
+
+    # Create a new user and add to DB
+    new_user = User(
+        email=user.email,
+        password=hashed_password,
+    )
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    return new_user
