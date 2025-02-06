@@ -109,7 +109,10 @@ def get_contact(contact_id: int, db: Session = Depends(get_db)):
 # Update an existing contact
 @router.put("/contacts/{contact_id}", response_model=ContactRead)
 def update_contact(
-    contact_id: int, contact: ContactCreate, db: Session = Depends(get_db)
+    contact_id: int,
+    contact: ContactCreate,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(verify_token),
 ):
     db_contact = db.query(Contact).filter(Contact.id == contact_id).first()
     if db_contact is None:
