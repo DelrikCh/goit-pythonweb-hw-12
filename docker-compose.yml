@@ -1,0 +1,27 @@
+services:
+  # FastAPI app service
+  app:
+    build: .
+    container_name: contacts-app
+    ports:
+      - "8000:8000"  # Map port 8000 on host to port 8000 on container
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/mydatabase  # Connection string to PostgreSQL
+    depends_on:
+      - db  # Wait for db to start first
+
+  # PostgreSQL database service
+  db:
+    image: postgres:latest  # You can change the version based on your needs
+    container_name: postgres-db
+    environment:
+      POSTGRES_DB: mydatabase
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # Persist data between container restarts
+    ports:
+      - "5432:5432"  # Expose PostgreSQL on the default port
+
+volumes:
+  postgres_data:  # Define a named volume for PostgreSQL data storage
