@@ -1,5 +1,12 @@
 fastapi
-dotenv
+python-dotenv
 sqlalchemy
 passlib
 pydantic
+uvicorn
+pyjwt
+pydantic[email]
+psycopg2
+python-multipart
+alembic
+bcrypt

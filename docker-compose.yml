@@ -6,22 +6,30 @@ services:
     ports:
       - "8000:8000"  # Map port 8000 on host to port 8000 on container
     environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/mydatabase  # Connection string to PostgreSQL
+      - DATABASE_URL=${DATABASE_URL}  # Connection string to PostgreSQL
     depends_on:
-      - db  # Wait for db to start first
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
 
   # PostgreSQL database service
   db:
     image: postgres:latest  # You can change the version based on your needs
     container_name: postgres-db
     environment:
-      POSTGRES_DB: mydatabase
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data  # Persist data between container restarts
     ports:
       - "5432:5432"  # Expose PostgreSQL on the default port
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:  # Define a named volume for PostgreSQL data storage
