@@ -1,13 +1,15 @@
 import jwt
 import os
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from typing import List, Optional
 from datetime import date, timedelta, datetime
 from dotenv import load_dotenv
 from .models import Contact, User
 from .schemas import ContactCreate, ContactRead, UserCreate
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from sqlalchemy import extract
 from passlib.context import CryptContext
@@ -18,6 +20,7 @@ from .db import (
 load_dotenv()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -263,7 +266,8 @@ def get_current_user(
 
 
 @router.get("/me", response_model=dict)
-def get_me(current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+def get_me(request: Request, current_user: User = Depends(get_current_user)):
     return {
         "id": current_user.id,
         "email": current_user.email,
