@@ -1,3 +1,4 @@
+import jsonpickle as json
 import jwt
 import os
 
@@ -15,8 +16,16 @@ from .cloudinary import upload_image
 from .db import (
     get_db,
 )
+from .email import send_email
 from .models import Contact, User
-from .schemas import ContactCreate, ContactRead, UserCreate, UserUpdateAvatar
+from .redis import RedisDB
+from .schemas import (
+    ContactCreate,
+    ContactRead,
+    UserCreate,
+    UserUpdateAvatar,
+    UserAuthorize,
+)
 
 load_dotenv()
 
@@ -24,9 +33,14 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+PENGING_USER_EXPIRATION_TIME = 24 * 60 * 60  # 24 hours in seconds
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+
+def pending_users_db():
+    return RedisDB().select(RedisDB.DBs.PENDING_USERS)
 
 
 # Dependency to verify JWT token
@@ -212,10 +226,20 @@ def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
+def generate_confirmation_code():
+    return os.urandom(16).hex()
+
+
 # Registration endpoint
-@router.post("/registration", status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_201_CREATED)
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
     # Check if the user with the same email already exists
+    if pending_users_db().exists(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User with this email already exists.",
+        )
+
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:
         raise HTTPException(
@@ -233,11 +257,49 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
         avatar=None,  # Default avatar
     )
 
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    confirmation_code = generate_confirmation_code()
 
-    return new_user
+    pending_users_db().hset(
+        user.email, mapping={"user": json.dumps(new_user), "code": confirmation_code}
+    )
+    pending_users_db().expire(user.email, PENGING_USER_EXPIRATION_TIME)
+    send_email(
+        user.email,
+        "Confirm your registration",
+        f"Your confirmation code is: {confirmation_code}",
+    )
+
+    return {
+        "message": "User registered successfully. Please check your email for the confirmation code. You have 24 hours to confirm your registration."
+    }
+
+
+@router.post("/authorize")
+def authorize_user(user: UserAuthorize, db: Session = Depends(get_db)):
+    if not pending_users_db().exists(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    code = pending_users_db().hget(user.email, "code")
+    if code != user.confirmation_code:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid confirmation code"
+        )
+    # If the user is already in the DB, return an error
+    existing_user = db.query(User).filter(User.email == user.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User with this email already exists.",
+        )
+    # Add the user to the DB
+    user_data: User = json.loads(pending_users_db().hget(user.email, "user"))
+    db.add(user_data)
+    db.commit()
+    db.refresh(user_data)
+    # Remove the user from the pending users DB
+    pending_users_db().delete(user.email)
+    return {"message": "User authorized successfully"}
 
 
 # Login endpoint

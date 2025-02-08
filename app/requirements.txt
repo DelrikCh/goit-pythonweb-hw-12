@@ -12,3 +12,5 @@ alembic
 bcrypt
 slowapi
 cloudinary
+redis
+jsonpickle

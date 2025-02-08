@@ -29,6 +29,12 @@ class UserCreate(BaseModel):
     class Config:
         orm_mode = True
 
+class UserAuthorize(BaseModel):
+    email: EmailStr
+    confirmation_code: str
+
+    class Config:
+        orm_mode = True
 
 class UserUpdateAvatar(BaseModel):
     url: str
