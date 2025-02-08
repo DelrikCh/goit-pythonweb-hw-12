@@ -12,17 +12,12 @@ services:
         condition: service_healthy
       redis:  # Ensure Redis is available
         condition: service_healthy
-    env_file:
-      - .env
+    env_file: ".env"
 
   # PostgreSQL database service
   db:
     image: postgres:latest  # You can change the version based on your needs
     container_name: postgres
-    environment:
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data  # Persist data between container restarts
     ports:
@@ -32,6 +27,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    env_file: ".env"
   redis:
     image: redis:latest
     container_name: redis
@@ -42,6 +38,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    env_file: ".env"
 
 volumes:
   postgres_data:  # Define a named volume for PostgreSQL data storage

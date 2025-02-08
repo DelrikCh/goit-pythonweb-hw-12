@@ -24,3 +24,4 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     password = Column(String, nullable=False)
     avatar = Column(String, nullable=True, default=None)  # Optional field
+    role = Column(String, nullable=False, default="USER")

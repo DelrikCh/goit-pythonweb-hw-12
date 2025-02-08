@@ -7,6 +7,7 @@ from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from typing import List, Optional
 from datetime import date, timedelta, datetime
 from dotenv import load_dotenv
+from functools import wraps
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
@@ -240,6 +241,26 @@ def generate_confirmation_code():
     return os.urandom(16).hex()
 
 
+def admin_only(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # Get current_user from the arguments
+        current_user: User = kwargs.get("current_user")
+
+        # Check if the current_user is an admin
+        print(current_user.role)
+        if current_user is None or current_user.role != "ADMIN":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Operation not permitted for non-admin users",
+            )
+
+        # Call the actual route function
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
 # Registration endpoint
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
@@ -265,6 +286,8 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
         email=user.email,
         password=hashed_password,
         avatar=None,  # Default avatar
+        # TODO: Consider using privilege level in a future, or scopes instead of role="USER"|"ADMIN"
+        role="USER",  # Default role
     )
 
     confirmation_code = generate_confirmation_code()
@@ -385,6 +408,7 @@ def get_me(request: Request, current_user: User = Depends(get_current_user)):
 
 
 @router.post("/updateAvatar")
+@admin_only
 def update_avatar(
     avatar: UserUpdateAvatar,
     db: Session = Depends(get_db),
