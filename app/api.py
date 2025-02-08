@@ -25,6 +25,7 @@ from .schemas import (
     UserCreate,
     UserUpdateAvatar,
     UserAuthorize,
+    UserResetPassword,
 )
 
 load_dotenv()
@@ -34,6 +35,7 @@ limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours in minutes
 PENGING_USER_EXPIRATION_TIME = 24 * 60 * 60  # 24 hours in seconds
+PENDING_PASSWORD_RESET_EXPIRATION_TIME = 30 * 60  # 30 minutes in seconds
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
@@ -45,6 +47,10 @@ def pending_users_db():
 
 def current_active_users_db():
     return RedisDB().select(RedisDB.DBs.CURRENT_ACTIVE_USERS)
+
+
+def pending_password_resets_db():
+    return RedisDB().select(RedisDB.DBs.PENDING_PASSWORD_RESETS)
 
 
 # Dependency to verify JWT token
@@ -278,7 +284,7 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/authorize")
+@router.post("/authorize/register")
 def authorize_user(user: UserAuthorize, db: Session = Depends(get_db)):
     if not pending_users_db().exists(user.email):
         raise HTTPException(
@@ -304,6 +310,35 @@ def authorize_user(user: UserAuthorize, db: Session = Depends(get_db)):
     # Remove the user from the pending users DB
     pending_users_db().delete(user.email)
     return {"message": "User authorized successfully"}
+
+
+@router.post("/authorize/reset")
+def authorize_reset(user: UserAuthorize, db: Session = Depends(get_db)):
+    if not pending_password_resets_db().exists(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    code = pending_password_resets_db().hget(user.email, "code")
+    if code != user.confirmation_code:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid confirmation code"
+        )
+    # If the user is not in the DB, return an error
+    existing_user = db.query(User).filter(User.email == user.email).first()
+    if not existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    # Update the user's password
+    hashed_password = pending_password_resets_db().hget(user.email, "password")
+    existing_user.password = hashed_password
+    db.commit()
+    db.refresh(existing_user)
+    # Remove the user from the pending users DB
+    pending_password_resets_db().delete(user.email)
+    # Drop it from the current active users DB for security reasons
+    current_active_users_db().delete(user.email)
+    return {"message": "Password reset successfully"}
 
 
 # Login endpoint
@@ -364,3 +399,42 @@ def update_avatar(
         current_user.email, ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
     return {"message": "Avatar updated successfully"}
+
+
+@router.post("/resetPassword")
+def reset_password(
+    user: UserResetPassword,
+    db: Session = Depends(get_db),
+):
+    # Check if the user with the same email already exists
+    existing_user = db.query(User).filter(User.email == user.email).first()
+    if not existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User with this email does not exist.",
+        )
+    # Check if the user has a pending password reset request
+    if pending_password_resets_db().exists(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Password reset request already exists.",
+        )
+
+    hashed_password = hash_password(user.new_password)
+    confirmation_code = generate_confirmation_code()
+    pending_password_resets_db().hset(
+        user.email, mapping={"code": confirmation_code, "password": hashed_password}
+    )
+    pending_password_resets_db().expire(
+        user.email, PENDING_PASSWORD_RESET_EXPIRATION_TIME
+    )
+
+    send_email(
+        user.email,
+        "Confirm your password reset",
+        f"Your confirmation code is: {confirmation_code}",
+    )
+
+    return {
+        "message": "Password reset request created successfully. Please check your email for the confirmation code. You have 30 minutes to confirm your password reset."
+    }

@@ -29,6 +29,7 @@ class UserCreate(BaseModel):
     class Config:
         orm_mode = True
 
+
 class UserAuthorize(BaseModel):
     email: EmailStr
     confirmation_code: str
@@ -36,8 +37,17 @@ class UserAuthorize(BaseModel):
     class Config:
         orm_mode = True
 
+
 class UserUpdateAvatar(BaseModel):
     url: str
+
+    class Config:
+        orm_mode = True
+
+
+class UserResetPassword(BaseModel):
+    email: EmailStr
+    new_password: str
 
     class Config:
         orm_mode = True

@@ -10,6 +10,7 @@ class RedisDB:
     class DBs(Enum):
         PENDING_USERS = 0
         CURRENT_ACTIVE_USERS = 1
+        PENDING_PASSWORD_RESETS = 2
 
     _instance = None
     _clients = {}
