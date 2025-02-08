@@ -11,3 +11,4 @@ python-multipart
 alembic
 bcrypt
 slowapi
+cloudinary

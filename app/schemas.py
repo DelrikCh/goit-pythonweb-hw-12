@@ -28,3 +28,10 @@ class UserCreate(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class UserUpdateAvatar(BaseModel):
+    url: str
+
+    class Config:
+        orm_mode = True

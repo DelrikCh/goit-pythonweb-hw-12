@@ -1,21 +1,22 @@
 import jwt
 import os
 
-from fastapi import APIRouter, HTTPException, Depends, Query, status, Request
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from typing import List, Optional
 from datetime import date, timedelta, datetime
 from dotenv import load_dotenv
-from .models import Contact, User
-from .schemas import ContactCreate, ContactRead, UserCreate
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from sqlalchemy import extract
 from passlib.context import CryptContext
+from .cloudinary import upload_image
 from .db import (
     get_db,
 )
+from .models import Contact, User
+from .schemas import ContactCreate, ContactRead, UserCreate, UserUpdateAvatar
 
 load_dotenv()
 
@@ -229,6 +230,7 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     new_user = User(
         email=user.email,
         password=hashed_password,
+        avatar=None,  # Default avatar
     )
 
     db.add(new_user)
@@ -277,4 +279,18 @@ def get_me(request: Request, current_user: User = Depends(get_current_user)):
     return {
         "id": current_user.id,
         "email": current_user.email,
+        "avatar_url": current_user.avatar,
     }
+
+
+@router.post("/updateAvatar")
+def update_avatar(
+    avatar: UserUpdateAvatar,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    secure_url = upload_image(avatar.url)
+    current_user.avatar = secure_url
+    db.commit()
+    db.refresh(current_user)
+    return {"message": "Avatar updated successfully"}
