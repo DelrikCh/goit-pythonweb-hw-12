@@ -1,7 +1,7 @@
 import jwt
 import os
 
-from fastapi import APIRouter, HTTPException, Depends, status, Request
+from fastapi import APIRouter, HTTPException, Depends, Query, status, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from typing import List, Optional
 from datetime import date, timedelta, datetime
@@ -55,6 +55,24 @@ def verify_token(db: Session = Depends(get_db), token: str = Depends(oauth2_sche
         )
 
 
+def get_current_user(
+    payload: dict = Depends(verify_token), db: Session = Depends(get_db)
+):
+    email = payload.get("sub")
+    user = db.query(User).filter(User.email == email).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    return user
+
+
+def get_user_contacts(db: Session = Depends(get_db), user_id=Depends(get_current_user)):
+    return db.query(Contact).filter(Contact.user_id == user_id.id)
+
+
 # Create a new contact
 @router.post(
     "/contacts/", response_model=ContactRead, status_code=status.HTTP_201_CREATED
@@ -62,16 +80,13 @@ def verify_token(db: Session = Depends(get_db), token: str = Depends(oauth2_sche
 def create_contact(
     contact: ContactCreate,
     db: Session = Depends(get_db),
-    payload: dict = Depends(verify_token),
+    user: User = Depends(get_current_user),
+    contacts=Depends(get_user_contacts),
 ):
     # If email exists or phone exists- raise an error
-    existing_email = (
-        db.query(Contact)
-        .filter(
-            Contact.email == contact.email, Contact.phone_number == contact.phone_number
-        )
-        .first()
-    )
+    existing_email = contacts.filter(
+        Contact.email == contact.email, Contact.phone_number == contact.phone_number
+    ).first()
     if existing_email:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -84,6 +99,7 @@ def create_contact(
         phone_number=contact.phone_number,
         birth_date=contact.birth_date,
         additional_info=contact.additional_info,
+        user_id=user.id,
     )
     db.add(db_contact)
     db.commit()
@@ -93,15 +109,17 @@ def create_contact(
 
 # Get all contacts
 @router.get("/contacts/", response_model=List[ContactRead])
-def get_contacts(db: Session = Depends(get_db)):
-    contacts = db.query(Contact).all()
-    return contacts
+def get_contacts(db: Session = Depends(get_db), contacts=Depends(get_user_contacts)):
+    return contacts.all()
 
 
 # Get one contact by id
 @router.get("/contacts/{contact_id}", response_model=ContactRead)
-def get_contact(contact_id: int, db: Session = Depends(get_db)):
-    contact = db.query(Contact).filter(Contact.id == contact_id).first()
+def get_contact(
+    contact_id: int,
+    contacts=Depends(get_user_contacts),
+):
+    contact = contacts.filter(Contact.id == contact_id).first()
     if contact is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found"
@@ -115,9 +133,9 @@ def update_contact(
     contact_id: int,
     contact: ContactCreate,
     db: Session = Depends(get_db),
-    payload: dict = Depends(verify_token),
+    contacts=Depends(get_user_contacts),
 ):
-    db_contact = db.query(Contact).filter(Contact.id == contact_id).first()
+    db_contact = contacts.filter(Contact.id == contact_id).first()
     if db_contact is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found"
@@ -129,6 +147,7 @@ def update_contact(
     db_contact.phone_number = contact.phone_number
     db_contact.birth_date = contact.birth_date
     db_contact.additional_info = contact.additional_info
+    db_contact.user_id = contact.user_id
 
     db.commit()
     db.refresh(db_contact)
@@ -137,8 +156,12 @@ def update_contact(
 
 # Delete a contact
 @router.delete("/contacts/{contact_id}")
-def delete_contact(contact_id: int, db: Session = Depends(get_db)):
-    db_contact = db.query(Contact).filter(Contact.id == contact_id).first()
+def delete_contact(
+    contact_id: int,
+    db: Session = Depends(get_db),
+    contacts=Depends(get_user_contacts),
+):
+    db_contact = contacts.filter(Contact.id == contact_id).first()
     if db_contact is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found"
@@ -155,35 +178,32 @@ def search_contacts(
     first_name: Optional[str] = None,
     last_name: Optional[str] = None,
     email: Optional[str] = None,
-    db: Session = Depends(get_db),
+    contacts=Depends(get_user_contacts),
 ):
-    query = db.query(Contact)
-
     if first_name:
-        query = query.filter(Contact.first_name.ilike(f"%{first_name}%"))
+        contacts = contacts.filter(Contact.first_name.ilike(f"%{first_name}%"))
     if last_name:
-        query = query.filter(Contact.last_name.ilike(f"%{last_name}%"))
+        contacts = contacts.filter(Contact.last_name.ilike(f"%{last_name}%"))
     if email:
-        query = query.filter(Contact.email.ilike(f"%{email}%"))
+        contacts = contacts.filter(Contact.email.ilike(f"%{email}%"))
 
-    contacts = query.all()
-    return contacts
+    return contacts.all()
 
 
 # Get contacts with birthdays within the next 7 days
 @router.get("/birthdays", response_model=List[ContactRead])
-def get_upcoming_birthdays(db: Session = Depends(get_db)):
+def get_upcoming_birthdays(contacts=Depends(get_user_contacts)):
     today = date.today()
     upcoming_months = [(today + timedelta(days=i)).month for i in range(8)]
     upcoming_days = [(today + timedelta(days=i)).day for i in range(8)]
 
-    contacts = (
-        db.query(Contact)
-        .filter((extract("month", Contact.birth_date).in_(upcoming_months)))
-        .filter(extract("day", Contact.birth_date).in_(upcoming_days))
+    result = (
+        contacts.filter(
+            (extract("month", Contact.birth_date).in_(upcoming_months))
+        ).filter(extract("day", Contact.birth_date).in_(upcoming_days))
     ).all()
 
-    return contacts
+    return result
 
 
 # Hash password function
@@ -249,20 +269,6 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
-
-
-def get_current_user(
-    payload: dict = Depends(verify_token), db: Session = Depends(get_db)
-):
-    email = payload.get("sub")
-    user = db.query(User).filter(User.email == email).first()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-        )
-
-    return user
 
 
 @router.get("/me", response_model=dict)

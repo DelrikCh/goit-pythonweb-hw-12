@@ -7,6 +7,7 @@ done
 
 # Run Alembic migrations (only if not already applied)
 echo "Running migrations..."
+alembic revision --autogenerate -m "Update"
 alembic upgrade head
 
 # Start FastAPI app
