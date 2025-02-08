@@ -32,7 +32,7 @@ load_dotenv()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours in minutes
 PENGING_USER_EXPIRATION_TIME = 24 * 60 * 60  # 24 hours in seconds
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
@@ -43,24 +43,14 @@ def pending_users_db():
     return RedisDB().select(RedisDB.DBs.PENDING_USERS)
 
 
+def current_active_users_db():
+    return RedisDB().select(RedisDB.DBs.CURRENT_ACTIVE_USERS)
+
+
 # Dependency to verify JWT token
 def verify_token(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        user = db.query(User).filter(User.email == email).first()
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
         return payload
     except jwt.PyJWTError:
         raise HTTPException(
@@ -73,8 +63,22 @@ def verify_token(db: Session = Depends(get_db), token: str = Depends(oauth2_sche
 def get_current_user(
     payload: dict = Depends(verify_token), db: Session = Depends(get_db)
 ):
-    email = payload.get("sub")
-    user = db.query(User).filter(User.email == email).first()
+    email: str = payload.get("sub")
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user = None
+    if current_active_users_db().exists(email):
+        print("#1")
+        user = json.loads(current_active_users_db().get(email))
+    if not user:
+        print("#2")
+        user = db.query(User).filter(User.email == email).first()
+        current_active_users_db().set(email, json.dumps(user))
+        current_active_users_db().expire(email, ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
     if not user:
         raise HTTPException(
@@ -355,4 +359,8 @@ def update_avatar(
     current_user.avatar = secure_url
     db.commit()
     db.refresh(current_user)
+    current_active_users_db().set(current_user.email, json.dumps(current_user))
+    current_active_users_db().expire(
+        current_user.email, ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    )
     return {"message": "Avatar updated successfully"}

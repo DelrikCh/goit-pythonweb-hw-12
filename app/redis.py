@@ -9,6 +9,7 @@ load_dotenv()
 class RedisDB:
     class DBs(Enum):
         PENDING_USERS = 0
+        CURRENT_ACTIVE_USERS = 1
 
     _instance = None
     _clients = {}
