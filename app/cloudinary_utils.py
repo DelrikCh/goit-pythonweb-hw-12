@@ -15,5 +15,11 @@ cloudinary.config(
 
 
 def upload_image(url):
+    """
+    Uploads an image to Cloudinary and returns the secure URL.
+
+    Args:
+        url (str): The URL of the image to upload.
+    """
     result = cloudinary.uploader.upload(url)
     return result["secure_url"]

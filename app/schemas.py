@@ -4,6 +4,10 @@ from typing import Optional
 
 
 class ContactCreate(BaseModel):
+    """
+    ContactCreate schema for creating a new contact.
+    """
+
     first_name: str
     last_name: str
     email: str
@@ -16,6 +20,10 @@ class ContactCreate(BaseModel):
 
 
 class ContactRead(ContactCreate):
+    """
+    ContactRead schema for reading contact data.
+    """
+
     id: int
 
     class Config:
@@ -23,6 +31,10 @@ class ContactRead(ContactCreate):
 
 
 class UserCreate(BaseModel):
+    """
+    UserCreate schema for creating a new user.
+    """
+
     email: EmailStr
     password: str
 
@@ -31,6 +43,10 @@ class UserCreate(BaseModel):
 
 
 class UserAuthorize(BaseModel):
+    """
+    UserAuthorize schema for user authorization.
+    """
+
     email: EmailStr
     confirmation_code: str
 
@@ -39,6 +55,10 @@ class UserAuthorize(BaseModel):
 
 
 class UserUpdateAvatar(BaseModel):
+    """
+    UserUpdateAvatar schema for updating user avatar.
+    """
+
     url: str
 
     class Config:
@@ -46,6 +66,10 @@ class UserUpdateAvatar(BaseModel):
 
 
 class UserResetPassword(BaseModel):
+    """
+    UserResetPassword schema for resetting user password.
+    """
+
     email: EmailStr
     new_password: str
 

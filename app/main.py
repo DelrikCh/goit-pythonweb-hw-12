@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from .api import router as contact_router, limiter
+from app.api import router as contact_router, limiter
 
 app = FastAPI()
 origins = ["<http://localhost:3000>"]

@@ -13,14 +13,14 @@ from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from sqlalchemy import extract
 from passlib.context import CryptContext
-from .cloudinary import upload_image
-from .db import (
+from app.cloudinary_utils import upload_image
+from app.db import (
     get_db,
 )
-from .email import send_email
-from .models import Contact, User
-from .redis import RedisDB
-from .schemas import (
+from app.email_utils import send_email
+from app.models import Contact, User
+from app.redis_client import RedisDB
+from app.schemas import (
     ContactCreate,
     ContactRead,
     UserCreate,
@@ -56,6 +56,13 @@ def pending_password_resets_db():
 
 # Dependency to verify JWT token
 def verify_token(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    """
+    Verify the JWT token and return the payload
+
+    Args:
+        db (Session): The database session
+        token (str): The JWT token
+    """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
@@ -70,6 +77,13 @@ def verify_token(db: Session = Depends(get_db), token: str = Depends(oauth2_sche
 def get_current_user(
     payload: dict = Depends(verify_token), db: Session = Depends(get_db)
 ):
+    """
+    Get the current user from the JWT token
+
+    Args:
+        payload (dict): The JWT token payload
+        db (Session): The database session
+    """
     email: str = payload.get("sub")
     if email is None:
         raise HTTPException(
@@ -95,7 +109,16 @@ def get_current_user(
     return user
 
 
-def get_user_contacts(db: Session = Depends(get_db), user_id=Depends(get_current_user)):
+def get_user_contacts(
+    db: Session = Depends(get_db), user_id: User = Depends(get_current_user)
+):
+    """
+    Get the contacts for the current user
+
+    Args:
+        db (Session): The database session
+        user (User): The user
+    """
     return db.query(Contact).filter(Contact.user_id == user_id.id)
 
 
@@ -109,6 +132,15 @@ def create_contact(
     user: User = Depends(get_current_user),
     contacts=Depends(get_user_contacts),
 ):
+    """
+    Create a new contact
+
+    Args:
+        contact (ContactCreate): The contact to create
+        db (Session): The database session
+        user (User): The user
+        contacts (List[Contact]): The contacts for the user
+    """
     # If email exists or phone exists- raise an error
     existing_email = contacts.filter(
         Contact.email == contact.email, Contact.phone_number == contact.phone_number
@@ -136,6 +168,13 @@ def create_contact(
 # Get all contacts
 @router.get("/contacts/", response_model=List[ContactRead])
 def get_contacts(db: Session = Depends(get_db), contacts=Depends(get_user_contacts)):
+    """
+    Get all contacts for the current user
+
+    Args:
+        db (Session): The database session
+        contacts (List[Contact]): The contacts for the user
+    """
     return contacts.all()
 
 
@@ -145,6 +184,13 @@ def get_contact(
     contact_id: int,
     contacts=Depends(get_user_contacts),
 ):
+    """
+    Get a contact by id
+
+    Args:
+        contact_id (int): The contact id
+        contacts (List[Contact]): The contacts for the user
+    """
     contact = contacts.filter(Contact.id == contact_id).first()
     if contact is None:
         raise HTTPException(
@@ -161,6 +207,15 @@ def update_contact(
     db: Session = Depends(get_db),
     contacts=Depends(get_user_contacts),
 ):
+    """
+    Update an existing contact
+
+    Args:
+        contact_id (int): The contact id
+        contact (ContactCreate): The contact to update
+        db (Session): The database session
+        contacts (List[Contact]): The contacts for the user
+    """
     db_contact = contacts.filter(Contact.id == contact_id).first()
     if db_contact is None:
         raise HTTPException(
@@ -187,6 +242,14 @@ def delete_contact(
     db: Session = Depends(get_db),
     contacts=Depends(get_user_contacts),
 ):
+    """
+    Delete a contact
+
+    Args:
+        contact_id (int): The contact id
+        db (Session): The database session
+        contacts (List[Contact]): The contacts for the user
+    """
     db_contact = contacts.filter(Contact.id == contact_id).first()
     if db_contact is None:
         raise HTTPException(
@@ -206,6 +269,15 @@ def search_contacts(
     email: Optional[str] = None,
     contacts=Depends(get_user_contacts),
 ):
+    """
+    Search contacts by first name, last name, or email
+
+    Args:
+        first_name (Optional[str]): The first name to search for
+        last_name (Optional[str]): The last name to search for
+        email (Optional[str]): The email to search for
+        contacts (List[Contact]): The contacts for the user
+    """
     if first_name:
         contacts = contacts.filter(Contact.first_name.ilike(f"%{first_name}%"))
     if last_name:
@@ -219,6 +291,12 @@ def search_contacts(
 # Get contacts with birthdays within the next 7 days
 @router.get("/birthdays", response_model=List[ContactRead])
 def get_upcoming_birthdays(contacts=Depends(get_user_contacts)):
+    """
+    Get contacts with birthdays within the next 7 days
+
+    Args:
+        contacts (List[Contact]): The contacts for the user
+    """
     today = date.today()
     upcoming_months = [(today + timedelta(days=i)).month for i in range(8)]
     upcoming_days = [(today + timedelta(days=i)).day for i in range(8)]
@@ -264,6 +342,13 @@ def admin_only(func):
 # Registration endpoint
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
+    """
+    Register a new user
+
+    Args:
+        user (UserCreate): The user to register
+        db (Session): The database session
+    """
     # Check if the user with the same email already exists
     if pending_users_db().exists(user.email):
         raise HTTPException(
@@ -309,6 +394,13 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/authorize/register")
 def authorize_user(user: UserAuthorize, db: Session = Depends(get_db)):
+    """
+    Authorize a user
+
+    Args:
+        user (UserAuthorize): The user to authorize
+        db (Session): The database session
+    """
     if not pending_users_db().exists(user.email):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
@@ -337,6 +429,13 @@ def authorize_user(user: UserAuthorize, db: Session = Depends(get_db)):
 
 @router.post("/authorize/reset")
 def authorize_reset(user: UserAuthorize, db: Session = Depends(get_db)):
+    """
+    Authorize a user for password reset
+
+    Args:
+        user (UserAuthorize): The user data to authorize
+        db (Session): The database session
+    """
     if not pending_password_resets_db().exists(user.email):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
@@ -369,6 +468,13 @@ def authorize_reset(user: UserAuthorize, db: Session = Depends(get_db)):
 def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
 ):
+    """
+    Login a user and return an access token
+
+    Args:
+        form_data (OAuth2PasswordRequestForm): The form with login data
+        db (Session): The database session
+    """
     user = db.query(User).filter(User.email == form_data.username).first()
 
     if not user or not pwd_context.verify(form_data.password, user.password):
@@ -387,6 +493,13 @@ def login_for_access_token(
 
 # Function to create a JWT token
 def create_access_token(data: dict, expires_delta: timedelta = None):
+    """
+    Create a JWT token
+
+    Args:
+        data (dict): The data to encode in the token
+        expires_delta (timedelta): The expiration time of the token
+    """
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -399,11 +512,18 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
 
 @router.get("/me", response_model=dict)
 @limiter.limit("5/minute")
-def get_me(request: Request, current_user: User = Depends(get_current_user)):
+def get_me(request: Request, user: User = Depends(get_current_user)):
+    """
+    Get the user info
+
+    Args:
+        request (Request): The request object
+        current_user (User): The current user
+    """
     return {
-        "id": current_user.id,
-        "email": current_user.email,
-        "avatar_url": current_user.avatar,
+        "id": user.id,
+        "email": user.email,
+        "avatar_url": user.avatar,
     }
 
 
@@ -412,16 +532,22 @@ def get_me(request: Request, current_user: User = Depends(get_current_user)):
 def update_avatar(
     avatar: UserUpdateAvatar,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
+    """
+    Update the user's avatar
+
+    Args:
+        avatar (UserUpdateAvatar): The avatar to update
+        db (Session): The database session
+        user (User): The user
+    """
     secure_url = upload_image(avatar.url)
-    current_user.avatar = secure_url
+    user.avatar = secure_url
     db.commit()
-    db.refresh(current_user)
-    current_active_users_db().set(current_user.email, json.dumps(current_user))
-    current_active_users_db().expire(
-        current_user.email, ACCESS_TOKEN_EXPIRE_MINUTES * 60
-    )
+    db.refresh(user)
+    current_active_users_db().set(user.email, json.dumps(user))
+    current_active_users_db().expire(user.email, ACCESS_TOKEN_EXPIRE_MINUTES * 60)
     return {"message": "Avatar updated successfully"}
 
 
@@ -430,6 +556,13 @@ def reset_password(
     user: UserResetPassword,
     db: Session = Depends(get_db),
 ):
+    """
+    Reset the user's password
+
+    Args:
+        user (UserResetPassword): The user to reset the password for
+        db (Session): The database session
+    """
     # Check if the user with the same email already exists
     existing_user = db.query(User).filter(User.email == user.email).first()
     if not existing_user:

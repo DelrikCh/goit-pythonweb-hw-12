@@ -14,6 +14,9 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Dependency to get the DB session
 def get_db():
+    """
+    Returns a database postgres session.
+    """
     db = SessionLocal()
     try:
         yield db

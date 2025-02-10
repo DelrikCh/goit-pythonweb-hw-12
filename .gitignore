@@ -1,2 +1,5 @@
 .env
 *__pycache__*
+build
+docs/source/*.rst
+!docs/source/index.rst
