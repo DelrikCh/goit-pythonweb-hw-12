@@ -326,7 +326,6 @@ def admin_only(func):
         current_user: User = kwargs.get("current_user")
 
         # Check if the current_user is an admin
-        print(current_user.role)
         if current_user is None or current_user.role != "ADMIN":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

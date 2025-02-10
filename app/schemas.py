@@ -10,7 +10,7 @@ class ContactCreate(BaseModel):
 
     first_name: str
     last_name: str
-    email: str
+    email: EmailStr
     phone_number: str
     birth_date: date
     additional_info: Optional[str] = None

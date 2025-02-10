@@ -14,3 +14,5 @@ slowapi
 cloudinary
 redis
 jsonpickle
+pytest
+pytest-mock
